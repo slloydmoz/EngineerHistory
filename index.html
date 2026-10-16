@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team Data Dashboard</title>
+  <meta name="description" content="Counts of developer activity from Bugzilla, Phabricator and GitHub spec repositories over a chosen period. All keys, settings and fetched data stay in your own browser.">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Team Data Dashboard</h1>
+    <nav>
+      <a href="#dashboard" data-view="dashboard">Dashboard</a>
+      <a href="#settings" data-view="settings">Settings</a>
+      <a href="#definitions" data-view="definitions">How it's calculated</a>
+    </nav>
+  </header>
+  <p class="banner">Local only: your keys, settings and fetched data are stored in this browser. Nothing is sent to Quick or shared with other viewers.</p>
+
+  <main>
+    <section id="view-dashboard" class="view"></section>
+    <section id="view-settings" class="view" hidden></section>
+    <section id="view-definitions" class="view" hidden></section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
