@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SITE = process.env.QUICK_SITE || 'slloyd-teamdatadashboard';
+const SITE = process.env.QUICK_SITE || 'slloyd-teamhistory';
 const INCLUDE = ['index.html', 'app.css', 'js'];   // the whole site; add new assets here
 const QUICK_OWN = ['.quick-deployed-by'];          // written by quick itself
 const dryRun = process.argv.includes('--dry-run');

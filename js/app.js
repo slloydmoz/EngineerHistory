@@ -372,7 +372,7 @@ function renderSettings() {
     renderSettings();
   };
   $('#clear-keys').onclick = () => { S.clearKeys(); renderSettings(); };
-  $('#export').onclick = () => download('team-data-dashboard-settings.json', S.exportSettings($('#export-keys').checked), 'application/json');
+  $('#export').onclick = () => download('team-history-settings.json', S.exportSettings($('#export-keys').checked), 'application/json');
   $('#import').onchange = async e => {
     const f = e.target.files[0];
     if (!f) return;
