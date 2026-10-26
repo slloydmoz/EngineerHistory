@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregate, reviewMatrix, median, sumStats } from '../js/aggregate.js';
+import { aggregate, reviewsByAuthorTeam, median } from '../js/aggregate.js';
 import { parseNeedinfoHistory } from '../js/fetchers.js';
 
 const H = 3600, D = 86400;
@@ -62,16 +62,15 @@ test('unanswered requests count as requests only; removed reviewers are not coun
   assert.equal(stats.c.reviews.requests, 0);
 });
 
-test('pooled median across people', () => {
-  assert.equal(median(sumStats([stats.a, stats.b]).reviews.turnaroundSecs), 5 * H);
+test('median', () => {
+  assert.equal(median([3, 1, 2]), 2);
+  assert.equal(median([4, 1, 2, 3]), 2.5);
   assert.equal(median([]), null);
 });
 
-test('cross-team matrix by reviewer team and author team', () => {
-  const m = reviewMatrix(people.filter(p => p.team === 'Graphics'), people, data, win);
-  assert.deepEqual(m.rows, ['Graphics']);
-  assert.deepEqual(m.cols, ['DOM', 'Not in roster']);
-  assert.deepEqual(m.cells.Graphics, { DOM: 2, 'Not in roster': 1 });
+test("one engineer's review events by revision author's team", () => {
+  assert.deepEqual(reviewsByAuthorTeam(people[0], people, data, win), { DOM: 2, 'Not in roster': 1 });
+  assert.deepEqual(reviewsByAuthorTeam(people[1], people, data, win), {});
 });
 
 test('needinfo stats', () => {

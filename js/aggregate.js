@@ -199,54 +199,15 @@ export function aggregate(people, data, win, botPhids = new Set()) {
   return out;
 }
 
-// Sums per-person stats. reviews.distinctRevisions is a per-person sum here;
-// teamDistinctRevisions gives the de-duplicated figure. Duration lists are concatenated.
-export function sumStats(list) {
-  const t = emptyStats();
-  for (const s of list) {
-    for (const k of ['events', 'commentOnly', 'distinctRevisions', 'requests', 'answered']) t.reviews[k] += s.reviews[k];
-    for (const k in t.reviews.states) t.reviews.states[k] += s.reviews.states[k];
-    t.reviews.turnaroundSecs.push(...s.reviews.turnaroundSecs);
-    t.revisions.authored += s.revisions.authored;
-    t.revisions.landed += s.revisions.landed;
-    t.bugs.closed += s.bugs.closed;
-    t.bugs.restricted += s.bugs.restricted;
-    for (const k of ['received', 'answered', 'clearedByOthers', 'open']) t.needinfo[k] += s.needinfo[k];
-    t.needinfo.answerSecs.push(...s.needinfo.answerSecs);
-    t.github.total += s.github.total;
-    const pairs = [
-      [t.reviews.byMonth, s.reviews.byMonth], [t.revisions.byMonth, s.revisions.byMonth],
-      [t.bugs.byMonth, s.bugs.byMonth], [t.needinfo.byMonth, s.needinfo.byMonth], [t.github.byMonth, s.github.byMonth],
-      [t.bugs.byResolution, s.bugs.byResolution], [t.github.byKind, s.github.byKind], [t.github.byRepo, s.github.byRepo],
-    ];
-    for (const [dst, src] of pairs) for (const k in src) bump(dst, k, src[k]);
-  }
-  t.activeMonths = [...new Set(list.flatMap(s => s.activeMonths))].sort();
-  return t;
-}
-
-// Distinct revisions reviewed by anyone in the group: a revision reviewed by two members counts once.
-export function teamDistinctRevisions(people, data, win, botPhids = new Set()) {
-  const byPhid = phidMap(people, data), ids = new Set();
-  for (const r of data.phab?.revisions || [])
-    if (submissions(r, data, byPhid, botPhids).some(s => inWin(s.at, win))) ids.add(r.id);
-  return ids.size;
-}
-
-// Review submissions in the window by the shown people, counted by reviewer's team (rows) and
-// revision author's team (columns). Authors are looked up in the whole roster.
-export function reviewMatrix(people, allPeople, data, win, botPhids = new Set()) {
-  const byPhid = phidMap(people, data), allByPhid = phidMap(allPeople, data);
-  const team = id => allPeople.find(p => p.id === id)?.team || NO_TEAM;
-  const cells = {}, cols = new Set();
+// One engineer's review submissions in the window, counted by the revision author's team.
+// Authors are looked up in the whole roster; authors not in it are counted as NOT_IN_ROSTER.
+export function reviewsByAuthorTeam(person, allPeople, data, win, botPhids = new Set()) {
+  const byPhid = phidMap([person], data), allByPhid = phidMap(allPeople, data);
+  const out = {};
   for (const r of data.phab?.revisions || []) {
-    const authorTeam = allByPhid[r.authorPHID] ? team(allByPhid[r.authorPHID]) : NOT_IN_ROSTER;
-    for (const s of submissions(r, data, byPhid, botPhids)) {
-      if (!inWin(s.at, win)) continue;
-      bump(cells[team(s.pid)] ||= {}, authorTeam);
-      cols.add(authorTeam);
-    }
+    const author = allPeople.find(p => p.id === allByPhid[r.authorPHID]);
+    const team = author ? author.team || NO_TEAM : NOT_IN_ROSTER;
+    for (const s of submissions(r, data, byPhid, botPhids)) if (inWin(s.at, win)) bump(out, team);
   }
-  const order = xs => [...xs].sort((a, b) => [NO_TEAM, NOT_IN_ROSTER].indexOf(a) - [NO_TEAM, NOT_IN_ROSTER].indexOf(b) || a.localeCompare(b));
-  return { rows: order(Object.keys(cells)), cols: order(cols), cells };
+  return out;
 }

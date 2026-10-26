@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregate, sumStats, teamDistinctRevisions } from '../js/aggregate.js';
+import { aggregate } from '../js/aggregate.js';
 
 const T = iso => Date.parse(iso) / 1000;
 const win = { start: T('2026-04-01T00:00:00Z'), end: T('2026-09-30T23:59:59Z') };
@@ -68,11 +68,6 @@ test('each reviewer is credited independently; author comments and out-of-window
   assert.equal(r.distinctRevisions, 3);
   assert.equal(r.states.changesPlanned, 1);
   assert.equal(r.states.resigned, 1);
-});
-
-test('group distinct revisions counts a shared revision once', () => {
-  assert.equal(sumStats([stats.a, stats.b]).reviews.distinctRevisions, 4);
-  assert.equal(teamDistinctRevisions(people, data, win, new Set(['PHID-BOT'])), 3);
 });
 
 test('revisions authored and landed', () => {

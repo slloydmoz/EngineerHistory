@@ -11,9 +11,10 @@ also uploads `.git/`, `.claude/`, tests and tooling to the site. `scripts/deploy
 publishes only the files in its `INCLUDE` list (currently `index.html`, `app.css`,
 `js/`), then fails if the site holds anything else. Add new site assets to `INCLUDE`.
 
-The app lives at `slloyd-teamhistory`. `moved-site/` is a separate one-page site deployed to
-the old name, `slloyd-teamdatadashboard`, that points people to the new address and lets them
-export settings saved under the old one (`quick deploy ./moved-site slloyd-teamdatadashboard --mirror`).
+The app (Engineer History) lives at `slloyd-engineerhistory`. `moved-site/` is a separate
+one-page site deployed to each old name, `slloyd-teamdatadashboard` and `slloyd-teamhistory`,
+that points people to the new address and lets them export settings saved under the old one
+(`quick deploy ./moved-site <old-name> --mirror` for each). Redeploy both if the page changes.
 
 Multiple sites from one repo is possible but not the default — only split content
 into its own subfolder site if explicitly asked, then deploy it by name

@@ -1,11 +1,11 @@
 import * as S from './store.js';
 import { fetchPhabricator, fetchBugzilla, fetchGitHub, loadCached, testConnection, TX_VERSION } from './fetchers.js';
-import { aggregate, sumStats, teamDistinctRevisions, reviewMatrix, median, PHAB } from './aggregate.js';
+import { aggregate, reviewsByAuthorTeam, median, PHAB } from './aggregate.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtDate = sec => (sec ? new Date(sec * 1000).toLocaleString() : 'never');
-const ui = { scope: 'all', from: null, to: null, fetching: null, log: [] };
+const ui = { person: null, from: null, to: null, fetching: null, log: [] };
 let data = { phab: null, bugzilla: null, github: null };
 
 // ---------- Window ----------
@@ -24,21 +24,18 @@ function monthsIn() {
   return out;
 }
 
-// ---------- Scope (who is shown) ----------
-function reportsOf(name, people, seen = new Set()) {
-  const direct = people.filter(p => p.manager && p.manager.toLowerCase() === name.toLowerCase() && !seen.has(p.id));
-  direct.forEach(p => seen.add(p.id));
-  return direct.flatMap(p => [p, ...reportsOf(p.name, people, seen)]);
-}
-function scopedPeople() {
-  const people = S.getSettings().people;
-  const [kind, val] = ui.scope.split(':');
-  if (kind === 'team') return people.filter(p => p.team === val);
-  if (kind === 'manager') return reportsOf(val, people);
-  if (kind === 'person') return people.filter(p => p.id === val);
-  return people;
-}
+// ---------- Who is shown: one engineer at a time ----------
+// The dashboard deliberately never shows several people side by side.
 const byName = (a, b) => a.name.localeCompare(b.name);
+const PERSON_KEY = 'tdd.ui.person';
+function currentPerson(people) {
+  if (!ui.person) { try { ui.person = localStorage.getItem(PERSON_KEY); } catch { /* storage unavailable */ } }
+  return people.find(p => p.id === ui.person) || [...people].sort(byName)[0];
+}
+function choosePerson(id) {
+  ui.person = id;
+  try { localStorage.setItem(PERSON_KEY, id); } catch { /* storage unavailable */ }
+}
 
 // ---------- Dashboard ----------
 // Durations are calendar time (weekends and holidays included).
@@ -51,9 +48,8 @@ function fmtDuration(secs) {
 }
 const medianOf = xs => fmtDuration(median(xs));
 
-// [heading, definition, value(stats)]. Group totals use the same functions on summed stats;
-// duration medians are taken over everyone's pooled durations.
-const TABLES = [
+// [heading, definition, value(stats)] per section.
+const SECTIONS = [
   ['Reviews (Phabricator)', [
     ['Review events', 'Each review submission counted once (a state change with its comments is one event), including repeat reviews of the same revision', s => s.reviews.events],
     ['Revisions reviewed', 'Distinct revisions with at least one review event from this person', s => s.reviews.distinctRevisions],
@@ -81,7 +77,7 @@ const TABLES = [
     ['Active months', 'Months in the period with any recorded activity from these sources', s => s.activeMonths.length],
   ]],
 ];
-const ALL_COLS = TABLES.flatMap(([, cols]) => cols);
+const ALL_STATS = SECTIONS.flatMap(([, stats]) => stats);
 
 // Bar chart over [label, value] pairs.
 function barChart(title, entries, ariaSuffix = '') {
@@ -93,7 +89,7 @@ function barChart(title, entries, ariaSuffix = '') {
       <text x="${x + bw / 2}" y="${y - 3}" text-anchor="middle">${v}</text>
       <text x="${x + bw / 2}" y="${h - 6}" text-anchor="middle">${esc(label)}</text>`;
   }).join('');
-  return `<div class="card chart"><h3>${esc(title)}</h3><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title + ariaSuffix)}">${bars}</svg></div>`;
+  return `<div class="panel chart"><h3>${esc(title)}</h3><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title + ariaSuffix)}">${bars}</svg></div>`;
 }
 const monthChart = (title, byMonth, months) => barChart(title, months.map(m => [m.slice(2), byMonth[m] || 0]), ' by month');
 
@@ -104,27 +100,10 @@ function durationChart(title, secs) {
   return barChart(title, counts, ' by duration');
 }
 
-function matrixTable(m) {
-  if (!m.rows.length) return '<p class="muted">No review submissions in this period.</p>';
-  return `<div class="scroll"><table>
-    <thead><tr><th>Reviewer's team ↓ / author's team →</th>${m.cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-    <tbody>${m.rows.map(r => `<tr><td>${esc(r)}</td>${m.cols.map(c => `<td>${m.cells[r][c] || 0}</td>`).join('')}</tr>`).join('')}</tbody>
-  </table></div>`;
-}
 const breakdown = (title, obj) => {
   const rows = Object.entries(obj).sort((a, b) => a[0].localeCompare(b[0]));
-  return `<div class="card"><h3>${esc(title)}</h3>${rows.length ? `<div class="kv">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join('')}</div>` : '<p class="muted">None in this period.</p>'}</div>`;
+  return `<div class="panel"><h3>${esc(title)}</h3>${rows.length ? `<div class="kv">${rows.map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join('')}</div>` : '<p class="muted">None in this period.</p>'}</div>`;
 };
-
-function scopeOptions(people) {
-  const teams = [...new Set(people.map(p => p.team).filter(Boolean))].sort();
-  const managers = [...new Set(people.map(p => p.manager).filter(Boolean))].sort();
-  const opt = (v, label) => `<option value="${esc(v)}" ${ui.scope === v ? 'selected' : ''}>${esc(label)}</option>`;
-  return opt('all', 'Everyone') +
-    (teams.length ? `<optgroup label="Team">${teams.map(t => opt(`team:${t}`, t)).join('')}</optgroup>` : '') +
-    (managers.length ? `<optgroup label="Reports of (all levels)">${managers.map(m => opt(`manager:${m}`, m)).join('')}</optgroup>` : '') +
-    `<optgroup label="Person">${[...people].sort(byName).map(p => opt(`person:${p.id}`, p.name || '(unnamed)')).join('')}</optgroup>`;
-}
 
 function renderDashboard() {
   const st = S.getSettings(), el = $('#view-dashboard');
@@ -133,33 +112,27 @@ function renderDashboard() {
     el.innerHTML = `<div class="card"><h2>Get started</h2><p>Add people, spec repositories and your API keys on the <a href="#settings">Settings</a> page, then fetch data here.</p></div>`;
     return;
   }
-  const people = scopedPeople().sort(byName), win = windowSec(), months = monthsIn();
+  const person = currentPerson(st.people), win = windowSec(), months = monthsIn();
   const bots = new Set(st.botUsernames.map(u => data.phab?.users?.[u.toLowerCase()]).filter(Boolean));
-  const stats = aggregate(people, data, win, bots);
-  const total = sumStats(people.map(p => stats[p.id]));
-  const teamRevs = teamDistinctRevisions(people, data, win, bots);
-  const matrix = reviewMatrix(people, st.people, data, win, bots);
-  const cell = (h, f, s) => h === 'Revisions reviewed' && s === total
-    ? `<abbr title="Distinct revisions across the group: a revision reviewed by two people counts once">${teamRevs}</abbr>` : f(s);
-  const statsTable = ([title, cols]) => `
-    <h3>${esc(title)}</h3>
-    <div class="card scroll"><table>
-      <thead><tr><th>Person</th>${cols.map(([h, d]) => `<th><abbr title="${esc(d)}">${esc(h)}</abbr></th>`).join('')}</tr></thead>
-      <tbody>${people.map(p => `<tr><td>${esc(p.name)}</td>${cols.map(([h, , f]) => `<td>${cell(h, f, stats[p.id])}</td>`).join('')}</tr>`).join('')}</tbody>
-      ${people.length > 1 ? `<tfoot><tr><td>Total (${people.length} people)</td>${cols.map(([h, , f]) => `<td>${cell(h, f, total)}</td>`).join('')}</tr></tfoot>` : ''}
-    </table></div>`;
+  const s = aggregate([person], data, win, bots)[person.id];
+  const byTeam = reviewsByAuthorTeam(person, st.people, data, win, bots);
+  const statList = stats => `<dl class="stats">${stats.map(([h, d, f]) => `<div title="${esc(d)}"><dt>${esc(h)}</dt><dd>${f(s)}</dd></div>`).join('')}</dl>`;
+  const [reviews, authoring, spec] = SECTIONS;
   const fetchedRow = (label, d, extra = '') => `<span>${label}</span><span>${d ? fmtDate(d.fetchedAt) : 'not fetched'}${extra}</span>`;
   const pending = data.phab?.pending ? ` (${data.phab.pending} revisions still to fetch review history for; fetch again to continue)` : '';
+  const options = [...st.people].sort(byName)
+    .map(p => `<option value="${esc(p.id)}" ${p.id === person.id ? 'selected' : ''}>${esc(p.name || '(unnamed)')}</option>`).join('');
+  const about = [person.team, person.manager && `manager: ${person.manager}`].filter(Boolean).map(esc).join(' · ');
 
   el.innerHTML = `
     <div class="card">
       <div class="row">
+        <label>Engineer <select id="person">${options}</select></label>
         <label>From <input type="month" id="from" value="${ui.from}"></label>
         <label>To <input type="month" id="to" value="${ui.to}"></label>
-        <label>Show <select id="scope">${scopeOptions(st.people)}</select></label>
         <button class="primary" id="fetch" ${ui.fetching ? 'disabled aria-busy="true"' : ''}>${ui.fetching ? 'Fetching…' : 'Fetch / refresh data'}</button>
         ${ui.fetching ? '<button id="cancel">Cancel</button>' : ''}
-        <button id="csv">Export tables as CSV</button>
+        <button id="csv">Export as CSV</button>
       </div>
       ${ui.fetching ? `<div class="fetch-status" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span id="fetch-status">${esc(statusText())}</span></div>` : ''}
       <h3>Last fetched</h3>
@@ -167,46 +140,55 @@ function renderDashboard() {
       ${ui.fetching || ui.log.length ? `<h3>Fetch log</h3><div class="log" id="log">${esc(ui.log.join('\n'))}</div>` : ''}
     </div>
 
-    <h2>Activity, ${esc(ui.from)} to ${esc(ui.to)}</h2>
-    <p class="muted">Counts of recorded activity only. They do not measure effort, quality or impact, and some work (meetings, mentoring, investigation, private repos) is not captured. Hover a column heading for its definition, or see <a href="#definitions">How it's calculated</a>.</p>
-    ${TABLES.map(statsTable).join('')}
-
-    <h2>By month${people.length > 1 ? ' (group totals)' : ''}</h2>
-    <div class="charts">
-      ${monthChart('Review events', total.reviews.byMonth, months)}
-      ${monthChart('Revisions authored', total.revisions.byMonth, months)}
-      ${monthChart('Bugs closed', total.bugs.byMonth, months)}
-      ${monthChart('Needinfo received', total.needinfo.byMonth, months)}
-      ${monthChart('Spec activity', total.github.byMonth, months)}
+    <div class="person-head">
+      <h2>${esc(person.name || '(unnamed)')}</h2>
+      <p class="muted">${about ? `${about} · ` : ''}${esc(ui.from)} to ${esc(ui.to)}</p>
     </div>
+    <p class="muted">Counts of recorded activity only. They do not measure effort, quality or impact, and some work (meetings, mentoring, investigation, private repos) is not captured. Hover a figure for its definition, or see <a href="#definitions">How it's calculated</a>.</p>
 
-    <h2>Response times${people.length > 1 ? ' (group totals)' : ''}</h2>
-    <p class="muted">How many answered requests fall into each range of calendar time. Weekends, holidays and time zones are not taken into account.</p>
-    <div class="charts">
-      ${durationChart('Review turnaround', total.reviews.turnaroundSecs)}
-      ${durationChart('Needinfo answer time', total.needinfo.answerSecs)}
-    </div>
+    <section class="card">
+      <h2>${esc(reviews[0])}</h2>
+      ${statList(reviews[1])}
+      <div class="charts">
+        ${monthChart('Review events', s.reviews.byMonth, months)}
+        ${durationChart('Review turnaround', s.reviews.turnaroundSecs)}
+        ${breakdown("Review events by revision author's team", byTeam)}
+      </div>
+    </section>
 
-    <h2>Cross-team reviews</h2>
-    <p class="muted">Review events by the people shown, counted by the reviewer's team and the revision author's team. Authors are looked up in the whole roster; authors not in it are grouped as "Not in roster".</p>
-    <div class="card">${matrixTable(matrix)}</div>
+    <section class="card">
+      <h2>${esc(authoring[0])}</h2>
+      ${statList(authoring[1])}
+      <div class="charts">
+        ${monthChart('Revisions authored', s.revisions.byMonth, months)}
+        ${monthChart('Bugs closed', s.bugs.byMonth, months)}
+        ${breakdown('Bug resolutions', s.bugs.byResolution)}
+        ${monthChart('Needinfo received', s.needinfo.byMonth, months)}
+        ${durationChart('Needinfo answer time', s.needinfo.answerSecs)}
+      </div>
+      ${s.bugs.restricted ? `<p class="muted">${s.bugs.restricted} of the closed bugs are security-restricted. They are counted, but no details are stored.</p>` : ''}
+    </section>
 
-    <h2>Breakdowns</h2>
-    <div class="charts">
-      ${breakdown('Bug resolutions', total.bugs.byResolution)}
-      ${breakdown('Spec activity by kind', total.github.byKind)}
-      ${breakdown('Spec activity by repository', total.github.byRepo)}
-    </div>
-    ${total.bugs.restricted ? `<p class="muted">${total.bugs.restricted} of the closed bugs are security-restricted. They are counted, but no details are stored.</p>` : ''}`;
+    <section class="card">
+      <h2>${esc(spec[0])}</h2>
+      ${statList(spec[1])}
+      <div class="charts">
+        ${monthChart('Spec activity', s.github.byMonth, months)}
+        ${breakdown('Spec activity by kind', s.github.byKind)}
+        ${breakdown('Spec activity by repository', s.github.byRepo)}
+      </div>
+    </section>
+    <p class="muted">Response-time charts count answered requests in each range of calendar time; weekends, holidays and time zones are not taken into account.</p>`;
 
+  $('#person').onchange = e => { choosePerson(e.target.value); renderDashboard(); };
   $('#from').onchange = e => { ui.from = e.target.value || ui.from; if (ui.from > ui.to) ui.to = ui.from; renderDashboard(); };
   $('#to').onchange = e => { ui.to = e.target.value || ui.to; if (ui.to < ui.from) ui.from = ui.to; renderDashboard(); };
-  $('#scope').onchange = e => { ui.scope = e.target.value; renderDashboard(); };
   $('#fetch').onclick = runFetch;
   if ($('#cancel')) $('#cancel').onclick = () => ui.fetching?.abort();
   $('#csv').onclick = () => {
-    const lines = [['Person', ...ALL_COLS.map(c => c[0])], ...people.map(p => [p.name, ...ALL_COLS.map(c => c[2](stats[p.id]))])];
-    download(`activity-${ui.from}-to-${ui.to}.csv`, lines.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
+    const lines = [['Engineer', person.name], ['Period', `${ui.from} to ${ui.to}`], ['Measure', 'Value'], ...ALL_STATS.map(([h, , f]) => [h, f(s)])];
+    const slug = (person.name || 'engineer').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    download(`activity-${slug}-${ui.from}-to-${ui.to}.csv`, lines.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };
   const log = $('#log');
   if (log) log.scrollTop = log.scrollHeight;
@@ -300,7 +282,7 @@ function renderSettings() {
 
     <h2>People</h2>
     <div class="card">
-      <p class="muted">Managers see everyone below them: set each person's manager to the manager's name as entered here.</p>
+      <p class="muted">The dashboard shows one engineer at a time and never lists people side by side. Team and manager are shown as context on each engineer's page; team is also used to group the review authors an engineer reviews for.</p>
       <div class="scroll"><table class="edit">
         <thead><tr>${PEOPLE_FIELDS.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead>
         <tbody>${st.people.map((p, i) => `<tr>${PEOPLE_FIELDS.map(([f]) => `<td><input data-person="${i}" data-field="${f}" value="${esc(p[f])}" ${f === 'manager' ? 'list="names"' : ''}></td>`).join('')}<td><button data-remove="${i}" aria-label="Remove ${esc(p.name)}">Remove</button></td></tr>`).join('')}</tbody>
@@ -372,7 +354,7 @@ function renderSettings() {
     renderSettings();
   };
   $('#clear-keys').onclick = () => { S.clearKeys(); renderSettings(); };
-  $('#export').onclick = () => download('team-history-settings.json', S.exportSettings($('#export-keys').checked), 'application/json');
+  $('#export').onclick = () => download('engineer-history-settings.json', S.exportSettings($('#export-keys').checked), 'application/json');
   $('#import').onchange = async e => {
     const f = e.target.files[0];
     if (!f) return;
@@ -416,9 +398,9 @@ function renderDefinitions() {
     <div class="card"><dl class="defs">
       <dt>Review event</dt><dd>One review submission by the person on a revision they did not author: a review state change (accept, request changes, plan changes, resign) and/or review comments (general or inline). Phabricator records a submission as several transactions, for example an accept, a comment and each inline comment; these count as one event. A submission with a state change is reported under that state; one with only comments is "comment only". Bot accounts listed in Settings are excluded.</dd>
       <dt>Repeat reviews</dt><dd>Reviewing the same revision several times gives several review events. "Revisions reviewed" counts each revision once per person, so both figures are shown side by side.</dd>
-      <dt>Several reviewers</dt><dd>When two or more people review a revision, each is credited for their own events. Group totals of review events can therefore exceed the number of revisions; the group "Revisions reviewed" total counts each revision once.</dd>
+      <dt>Several reviewers</dt><dd>When two or more people review a revision, each is credited for their own events.</dd>
       <dt>Review requests and turnaround</dt><dd>A review request starts when the person is added as a reviewer, or when the author asks for review again while the person is a reviewer. It is answered by the person's next review submission of any kind (including resigning); further requests before that answer do not restart the clock. Being removed as reviewer closes the request without counting it. Requests made to a review group, rather than to the person, are not attributed to anyone. Turnaround is the calendar time from request to answer, counted for requests made in the period; weekends, holidays and time zones are not taken into account.</dd>
-      <dt>Cross-team reviews</dt><dd>Review events by the people shown, counted by the reviewer's team and the team of the revision's author. Teams come from the People settings. Authors who are not in the roster are grouped as "Not in roster"; people with no team as "(no team)".</dd>
+      <dt>Review events by revision author's team</dt><dd>This engineer's review events, counted by the team of each revision's author. Teams come from the People settings. Authors who are not in the roster are grouped as "Not in roster"; people with no team as "(no team)".</dd>
       <dt>Needinfo</dt><dd>From Bugzilla flag history. "Received" counts needinfo requests to the person set in the period. "Answered" counts those the person cleared themselves in the period, which normally happens when they reply. "Cleared by others" counts requests someone else cleared, for example a requester withdrawing it. "Still open" counts requests set in the period that are not yet cleared. Answer time is the calendar time from the request being set to the person clearing it.</dd>
       <dt>Revisions considered</dt><dd>Revisions where the person is a listed reviewer or the author and that were modified in the period. A comment from someone not listed as a reviewer is not counted.</dd>
       <dt>Revisions landed</dt><dd>Authored revisions whose status is closed (published), with the last modification in the period. This approximates the landing date.</dd>

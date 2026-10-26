@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Team History has moved</title>
-  <meta name="description" content="Team Data Dashboard is now Team History, at slloyd-teamhistory.quick.mozilla.cloud. Export your settings here and import them there.">
+  <title>Engineer History has moved</title>
+  <meta name="description" content="This dashboard is now Engineer History, at slloyd-engineerhistory.quick.mozilla.cloud. Export your settings here and import them there.">
   <style>
     :root { --bg: #fbfbfe; --surface: #fff; --text: #15141a; --muted: #5b5b66; --line: #e0e0e6; --accent: #0060df; --accent-text: #fff; color-scheme: light; }
     @media (prefers-color-scheme: dark) {
@@ -24,32 +24,32 @@
 </head>
 <body>
 <main>
-  <h1>Team Data Dashboard is now Team History</h1>
-  <p>The dashboard has moved to a new address. Please update your bookmarks.</p>
-  <a class="primary" href="https://slloyd-teamhistory.quick.mozilla.cloud/">Open Team History</a>
+  <h1>This dashboard is now Engineer History</h1>
+  <p>Team Data Dashboard and Team History are now Engineer History, at a new address. Please update your bookmarks.</p>
+  <a class="primary" href="https://slloyd-engineerhistory.quick.mozilla.cloud/">Open Engineer History</a>
 
   <div class="card">
     <strong>Bring your settings with you</strong>
-    <p id="status" class="muted">Your keys, people and repositories were saved in this browser under the old address, so the new address starts empty. Export them here, then on Team History go to Settings → Import settings and choose the file.</p>
+    <p id="status" class="muted">Your keys, people and repositories were saved in this browser under the old address, so the new address starts empty. Export them here, then on Engineer History go to Settings → Import settings and choose the file.</p>
     <label><input type="checkbox" id="keys"> Include API keys (treat the file as a secret)</label>
     <button id="export" type="button">Export settings</button>
-    <p class="muted">Fetched data is not carried over: press Fetch on Team History to load it again.</p>
+    <p class="muted">Fetched data is not carried over: press Fetch on Engineer History to load it again.</p>
   </div>
 </main>
 <script>
-  // Same export format as Team History's Settings → Export settings.
+  // Same export format as Engineer History's Settings → Export settings.
   const read = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
   const settings = read('tdd.settings'), keys = read('tdd.keys');
   const status = document.getElementById('status'), btn = document.getElementById('export');
   if (!settings) {
     btn.disabled = true;
-    status.textContent = 'No saved settings were found in this browser, so there is nothing to export. Open Team History and set it up there.';
+    status.textContent = 'No saved settings were found in this browser, so there is nothing to export. Open Engineer History and set it up there.';
   }
   btn.onclick = () => {
     const out = { settings, ...(document.getElementById('keys').checked && keys ? { keys } : {}) };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
-    a.download = 'team-history-settings.json';
+    a.download = 'engineer-history-settings.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };

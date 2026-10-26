@@ -41,7 +41,16 @@ th abbr { text-decoration: underline dotted; cursor: help; }
 tfoot td { font-weight: 600; }
 table.edit td, table.edit th { text-align: left; padding: .2rem; }
 table.edit input { width: 100%; min-width: 7rem; }
-.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; margin-top: 1rem; }
+.panel { border: 1px solid var(--line); border-radius: 6px; padding: .75rem; min-width: 0; }
+.panel h3 { margin-top: 0; }
+section.card > h2 { margin-top: 0; }
+.person-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1rem; margin: 1.5rem 0 .25rem; }
+.person-head h2 { margin: 0; font-size: 1.35rem; }
+dl.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: .75rem 1rem; margin: 0; }
+dl.stats div { display: flex; flex-direction: column-reverse; gap: .1rem; min-width: 0; cursor: help; }
+dl.stats dt { font-size: .8rem; color: var(--muted); }
+dl.stats dd { margin: 0; font-size: 1.35rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .chart svg { width: 100%; height: auto; display: block; }
 .chart text { fill: var(--muted); font-size: 10px; }
 .chart rect { fill: var(--bar); }
